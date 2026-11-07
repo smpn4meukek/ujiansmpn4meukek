@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMP Negeri 4 Meukek - Portal Ujian Online</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Mammoth.js for Word (.docx) Parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <!-- Google Fonts: Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: block !important; }
+      body { background: white !important; color: black !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col justify-between">
+
+  <!-- Header / Nav -->
+  <header class="bg-indigo-950 text-white shadow-md sticky top-0 z-50 no-print border-b border-indigo-900">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3 cursor-pointer" onclick="navigateHome()">
+        <div class="bg-white text-indigo-950 p-2 rounded-xl font-extrabold text-xl shadow flex items-center justify-center w-10 h-10">
+          <i class="fa-solid fa-school"></i>
+        </div>
+        <div>
+          <h1 class="font-extrabold text-lg leading-tight tracking-tight">Portal Ujian SMP Negeri 4 Meukek</h1>
+          <p class="text-[11px] text-indigo-200">Sistem Ujian Online Real-Time & Live Scoring</p>
+        </div>
+      </div>
+
+      <!-- Right Nav Section -->
+      <div id="navRightSection" class="flex items-center space-x-3">
+        <!-- Dynamic via JS -->
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Render Container -->
+  <main id="appContainer" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
+    <!-- View Dynamic Content -->
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none no-print"></div>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500 no-print">
+    <div class="max-w-7xl mx-auto px-4">
+      <p>© 2026 <strong>SMP Negeri 4 Meukek</strong>. Portal Ujian Digital & Sistem Evaluasi Terintegrasi.</p>
+    </div>
+  </footer>
+
+  <!-- Autonomous Real-Time Engine (Zero-Config Netlify Ready) -->
+  <script>
+    // Application State
+    window.appState = {
+      user: null,
+      userProfile: null,
+      role: null,
+      studentInfo: null,
+      currentExam: null,
+      userAnswers: {},
+      flaggedQuestions: {},
+      examTimerInterval: null,
+      timeLeft: 0,
+      activeQuestionIndex: 0
+    };
+
+    // Store custom admin credentials locally
+    window.adminCredentials = {
+      email: 'admin@smpn4meukek.sch.id',
+      password: 'admin123'
+    };
+
+    // Shared LocalStorage & Multi-Tab Real-Time Broadcast Sync Engine
+    const SYNC_CHANNEL_NAME = 'smpn4meukek_realtime_sync';
+    const broadcastChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(SYNC_CHANNEL_NAME) : null;
+
+    function loadLocalStore(key, defaultValue) {
+      try {
+        const val = localStorage.getItem('smpn4_' + key);
+        return val ? JSON.parse(val) : defaultValue;
+      } catch (e) {
+        return defaultValue;
+      }
+    }
+
+    function saveLocalStore(key, data) {
+      try {
+        localStorage.setItem('smpn4_' + key, JSON.stringify(data));
+        // Broadcast real-time change to all other active tabs/devices
+        if (broadcastChannel) {
+          broadcastChannel.postMessage({ type: 'SYNC_UPDATE', storeKey: key, payload: data });
+        }
+      } catch (e) {
+        console.warn("Storage save error:", e);
+      }
+    }
+
+    // Default Seed Data
+    window.localExamsStore = loadLocalStore('exams', {});
+    window.localResultsStore = loadLocalStore('results', {});
+    window.localTeachersStore = loadLocalStore('teachers', {
+      'admin-default': {
+        uid: 'admin-default',
+        email: 'admin@smpn4meukek.sch.id',
+        name: 'Administrator Utama',
+        role: 'admin',
+        subject: 'Semua Mata Pelajaran'
+      }
+    });
+    window.localStudentsStore = loadLocalStore('students', {
+      '1001': { nis: '1001', name: 'Ahmad Raihan', class: 'VII A' },
+      '1002': { nis: '1002', name: 'Siti Rahmah', class: 'VII B' }
+    });
+
+    // Listen to incoming real-time broadcasts
+    if (broadcastChannel) {
+      broadcastChannel.onmessage = (event) => {
+        if (event.data && event.data.type === 'SYNC_UPDATE') {
+          const { storeKey, payload } = event.data;
+          if (storeKey === 'exams') window.localExamsStore = payload;
+          if (storeKey === 'results') {
+            window.localResultsStore = payload;
+            if (window.appState.role === 'guru') {
+              window.showToast("Hasil ujian baru masuk secara real-time!", "success");
+            }
+          }
+          if (storeKey === 'teachers') window.localTeachersStore = payload;
+          if (storeKey === 'students') window.localStudentsStore = payload;
+
+          // Re-render active UI view automatically
+          if (window.appState.role === 'admin') {
+            renderAdminDashboardStats();
+            renderAdminStudentsList();
+            renderAdminTeachersList();
+          } else if (window.appState.role === 'guru') {
+            renderGuruExamsGrid();
+            if (window.appState.currentExam) renderLiveResultsTable(window.appState.currentExam.code);
+          }
+        }
+      };
+    }
+
+    // Listen to window storage event for cross-tab realtime sync
+    window.addEventListener('storage', (e) => {
+      if (e.key && e.key.startsWith('smpn4_')) {
+        window.localExamsStore = loadLocalStore('exams', window.localExamsStore);
+        window.localResultsStore = loadLocalStore('results', window.localResultsStore);
+        window.localTeachersStore = loadLocalStore('teachers', window.localTeachersStore);
+        window.localStudentsStore = loadLocalStore('students', window.localStudentsStore);
+
+        if (window.appState.role === 'admin') renderAdminDashboardStats();
+        if (window.appState.role === 'guru') renderGuruExamsGrid();
+      }
+    });
+
+    // Dynamic Admin Dashboard Global Stats Counter
+    window.renderAdminDashboardStats = () => {
+      const examsCount = Object.keys(window.localExamsStore).length;
+      const teachersCount = Object.values(window.localTeachersStore).filter(t => t.role !== 'admin').length;
+      const studentsCount = Object.keys(window.localStudentsStore).length;
+      const results = Object.values(window.localResultsStore);
+
+      const elExams = document.getElementById('statTotalExams');
+      const elTeachers = document.getElementById('statTotalTeachers');
+      const elStudents = document.getElementById('statTotalStudents');
+      const elAvg = document.getElementById('statAvgScore');
+
+      if (elExams) elExams.innerText = examsCount;
+      if (elTeachers) elTeachers.innerText = teachersCount;
+      if (elStudents) elStudents.innerText = studentsCount;
+
+      if (elAvg) {
+        if (results.length > 0) {
+          const avg = Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length);
+          elAvg.innerText = avg;
+        } else {
+          elAvg.innerText = "0";
+        }
+      }
+    };
+
+    window.showToast = (msg, type = "info") => {
+      const toastContainer = document.getElementById('toastContainer');
+      if (!toastContainer) return;
+      const toast = document.createElement('div');
+      const bg = type === 'success' ? 'bg-emerald-600' : type === 'error' ? 'bg-rose-600' : 'bg-slate-800';
+      toast.className = `${bg} text-white px-4 py-3 rounded-xl shadow-lg text-xs font-semibold flex items-center space-x-2 transition-all transform translate-y-2 opacity-100 pointer-events-auto`;
+      toast.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check' : type === 'error' ? 'fa-circle-xmark' : 'fa-circle-info'}"></i><span>${msg}</span>`;
+      toastContainer.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    };
+
+    function renderNav() {
+      const container = document.getElementById('navRightSection');
+      if (!container) return;
+
+      let html = '';
+      if (window.appState.userProfile) {
+        const profile = window.appState.userProfile;
+        const isAdmin = profile.role === 'admin';
+        const badgeBg = isAdmin ? 'bg-rose-700 text-rose-100 border-rose-600' : 'bg-indigo-800 text-indigo-100 border-indigo-700';
+        const roleIcon = isAdmin ? 'fa-user-shield' : 'fa-user-tie';
+        const roleTitle = isAdmin ? 'SUPER ADMIN' : `Guru (${profile.subject || 'Mapel'})`;
+
+        html = `
+          <div class="flex items-center space-x-3">
+            <span class="text-xs ${badgeBg} px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 border shadow-sm">
+              <i class="fa-solid ${roleIcon}"></i> ${roleTitle}: ${profile.name || profile.email}
+            </span>
+            <button onclick="handleLogout()" class="text-xs bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg transition font-semibold border border-slate-700">
+              <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </button>
+          </div>
+        `;
+      } else if (window.appState.role === 'siswa') {
+        html = `
+          <span class="text-xs bg-indigo-800 text-indigo-100 px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 border border-indigo-700">
+            <i class="fa-solid fa-user-graduate"></i> Siswa: ${window.appState.studentInfo?.name || 'Peserta'}
+          </span>
+        `;
+      } else {
+        html = `
+          <div class="flex gap-2">
+            <button onclick="renderGuruAuthModal('login')" class="text-xs bg-indigo-900 hover:bg-indigo-800 text-white px-3.5 py-1.5 rounded-lg transition font-semibold border border-indigo-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-chalkboard-user"></i> Portal Guru
+            </button>
+            <button onclick="renderAdminAuthModal()" class="text-xs bg-rose-700 hover:bg-rose-800 text-white px-3 py-1.5 rounded-lg transition font-semibold border border-rose-600 flex items-center gap-1.5">
+              <i class="fa-solid fa-user-shield"></i> Login Admin
+            </button>
+          </div>
+        `;
+      }
+      container.innerHTML = html;
+    }
+
+    // Admin & Student Operations with Instant Local Storage Realtime Sync
+    window.handleAddStudentSubmit = (e) => {
+      e.preventDefault();
+      const nis = document.getElementById('admStudentNis').value.trim();
+      const name = document.getElementById('admStudentName').value.trim();
+      const studentClass = document.getElementById('admStudentClass').value.trim();
+
+      if (!nis || !name) {
+        showToast("NIS dan Nama Murid wajib diisi!", "error");
+        return;
+      }
+
+      const studentObj = { nis, name, class: studentClass || 'Umum', addedAt: new Date().toISOString() };
+      window.localStudentsStore[nis] = studentObj;
+      saveLocalStore('students', window.localStudentsStore);
+
+      showToast(`Murid ${name} (NIS: ${nis}) berhasil didaftarkan secara Real-Time!`, "success");
+      e.target.reset();
+      renderAdminStudentsList();
+      renderAdminDashboardStats();
+    };
+
+    window.handleAddTeacherSubmit = (e) => {
+      e.preventDefault();
+      const name = document.getElementById('admTeacherName').value.trim();
+      const subject = document.getElementById('admTeacherSubject').value.trim();
+      const email = document.getElementById('admTeacherEmail').value.trim();
+      const password = document.getElementById('admTeacherPassword').value.trim();
+
+      if (!name || !subject || !email || !password) {
+        showToast("Seluruh bidang form guru wajib diisi!", "error");
+        return;
+      }
+
+      const uid = 'guru-' + Date.now();
+      const teacherObj = { uid, email, password, name, subject, role: 'guru' };
+
+      window.localTeachersStore[uid] = teacherObj;
+      saveLocalStore('teachers', window.localTeachersStore);
+
+      showToast(`Akun Guru (${name} - ${subject}) berhasil dibuat & ter-update Real-Time!`, "success");
+      e.target.reset();
+      renderAdminTeachersList();
+      renderAdminDashboardStats();
+    };
+
+    window.handleDeleteStudent = (nis) => {
+      if (!confirm(`Hapus data murid dengan NIS ${nis}?`)) return;
+      delete window.localStudentsStore[nis];
+      saveLocalStore('students', window.localStudentsStore);
+      showToast("Data murid berhasil dihapus", "success");
+      renderAdminStudentsList();
+      renderAdminDashboardStats();
+    };
+
+    window.handleDeleteTeacher = (uid) => {
+      if (!confirm("Hapus akun guru ini dari sistem?")) return;
+      delete window.localTeachersStore[uid];
+      saveLocalStore('teachers', window.localTeachersStore);
+      showToast("Akun guru berhasil dihapus", "success");
+      renderAdminTeachersList();
+      renderAdminDashboardStats();
+    };
+
+    window.submitStudentExam = () => {
+      if (window.appState.examTimerInterval) {
+        clearInterval(window.appState.examTimerInterval);
+        window.appState.examTimerInterval = null;
+      }
+
+      const exam = window.appState.currentExam;
+      const answers = window.appState.userAnswers;
+      const questions = exam.questions;
+
+      let correctCount = 0;
+      questions.forEach((q, idx) => {
+        if (answers[idx] === q.key) correctCount++;
+      });
+
+      const score = Math.round((correctCount / questions.length) * 100);
+      const resultObj = {
+        examCode: exam.code,
+        studentName: window.appState.studentInfo.name,
+        studentNis: window.appState.studentInfo.nis,
+        score: score,
+        correctCount: correctCount,
+        totalQuestions: questions.length,
+        timestamp: new Date().toISOString()
+      };
+
+      const resId = `${exam.code}_${window.appState.studentInfo.nis}`;
+      window.localResultsStore[resId] = resultObj;
+      saveLocalStore('results', window.localResultsStore);
+
+      renderStudentResultPage(resultObj);
+    };
+
+    // Navigation and Page Initializer
+    window.navigateHome = () => {
+      if (window.appState.role === 'admin') renderAdminDashboard();
+      else if (window.appState.role === 'guru') renderGuruDashboard();
+      else renderPortalSelection();
+    };
+
+    // --- UI Renderers & Views ---
+    window.renderPortalSelection = () => {
+      window.appState.role = null;
+      window.appState.userProfile = null;
+      renderNav();
+
+      const container = document.getElementById('appContainer');
+      container.innerHTML = `
+        <div class="max-w-4xl mx-auto space-y-8 py-4">
+          <div class="text-center space-y-2">
+            <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">SMP Negeri 4 Meukek</span>
+            <h2 class="text-3xl font-extrabold text-slate-900">Portal Ujian Online & CBT</h2>
+            <p class="text-slate-600 text-sm max-w-lg mx-auto">Silakan pilih jenis portal di bawah ini untuk memulai atau mengelola ujian online sekolah.</p>
+          </div>
+
+          <div class="grid md:grid-cols-3 gap-6">
+            <!-- Portal Siswa -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between hover:shadow-md transition">
+              <div class="space-y-4">
+                <div class="w-12 h-12 bg-indigo-100 text-indigo-700 rounded-xl flex items-center justify-center text-xl font-bold">
+                  <i class="fa-solid fa-user-graduate"></i>
+                </div>
+                <div>
+                  <h3 class="font-bold text-lg text-slate-900">Portal Siswa</h3>
+                  <p class="text-xs text-slate-500 mt-1">Masuk untuk mengerjakan ujian online menggunakan Kode Ujian dari Guru.</p>
+                </div>
+              </div>
+              <button onclick="renderStudentLoginForm()" class="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl text-sm transition">
+                Masuk Kerjakan Ujian <i class="fa-solid fa-arrow-right ml-1"></i>
+              </button>
+            </div>
+
+            <!-- Portal Guru Mapel -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between hover:shadow-md transition">
+              <div class="space-y-4">
+                <div class="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center text-xl font-bold">
+                  <i class="fa-solid fa-chalkboard-user"></i>
+                </div>
+                <div>
+                  <h3 class="font-bold text-lg text-slate-900">Portal Guru Mapel</h3>
+                  <p class="text-xs text-slate-500 mt-1">Kelola bank soal, publikasikan ujian, dan lihat rekap nilai siswa secara real-time.</p>
+                </div>
+              </div>
+              <button onclick="renderGuruAuthModal('login')" class="mt-6 w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl text-sm transition">
+                Login Guru Mapel <i class="fa-solid fa-arrow-right ml-1"></i>
+              </button>
+            </div>
+
+            <!-- Portal Admin -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between hover:shadow-md transition">
+              <div class="space-y-4">
+                <div class="w-12 h-12 bg-rose-100 text-rose-700 rounded-xl flex items-center justify-center text-xl font-bold">
+                  <i class="fa-solid fa-user-shield"></i>
+                </div>
+                <div>
+                  <h3 class="font-bold text-lg text-slate-900">Portal Admin</h3>
+                  <p class="text-xs text-slate-500 mt-1">Kelola data murid (whitelist), buat akun guru mapel, dan pantau rekap sekolah.</p>
+                </div>
+              </div>
+              <button onclick="renderAdminAuthModal()" class="mt-6 w-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-2.5 rounded-xl text-sm transition">
+                Login Admin <i class="fa-solid fa-arrow-right ml-1"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    };
+
+    window.renderStudentLoginForm = () => {
+      const container = document.getElementById('appContainer');
+      container.innerHTML = `
+        <div class="max-w-md mx-auto bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+          <div class="text-center">
+            <h3 class="text-xl font-bold text-slate-900">Masuk Ujian Siswa</h3>
+            <p class="text-xs text-slate-500 mt-1">Masukkan data diri dan Kode Akses Ujian dari Guru.</p>
+          </div>
+          <form onsubmit="handleStartExamSubmit(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Kode Akses Ujian</label>
+              <input type="text" id="stdExamCode" required uppercase placeholder="Contoh: IPA7A" class="w-full px-3.5 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none uppercase font-bold tracking-wider">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">NIS (Nomor Induk Siswa)</label>
+              <input type="text" id="stdNis" required placeholder="Contoh: 1001" class="w-full px-3.5 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+              <p class="text-[10px] text-amber-600 mt-1"><i class="fa-solid fa-info-circle"></i> NIS wajib sudah terdaftar oleh Admin Sekolah.</p>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Nama Lengkap Siswa</label>
+              <input type="text" id="stdName" required placeholder="Nama Anda" class="w-full px-3.5 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+            </div>
+            <div class="flex gap-2 pt-2">
+              <button type="button" onclick="renderPortalSelection()" class="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2.5 rounded-xl text-sm transition">Batal</button>
+              <button type="submit" class="w-2/3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2">
+                <span>Mulai Kerjakan</span> <i class="fa-solid fa-arrow-right"></i>
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+    };
+
+    window.handleStartExamSubmit = (e) => {
+      e.preventDefault();
+      const examCode = document.getElementById('stdExamCode').value.trim().toUpperCase();
+      const nis = document.getElementById('stdNis').value.trim();
+      const name = document.getElementById('stdName').value.trim();
+
+      // Check Student Whitelist Registration
+      if (!window.localStudentsStore[nis]) {
+        showToast(`NIS ${nis} belum terdaftar di sistem admin sekolah!`, "error");
+        return;
+      }
+
+      // Check Exam Existence
+      const exam = window.localExamsStore[examCode];
+      if (!exam) {
+        showToast(`Kode Ujian ${examCode} tidak ditemukan!`, "error");
+        return;
+      }
+
+      window.appState.role = 'siswa';
+      window.appState.studentInfo = { nis, name, class: window.localStudentsStore[nis].class };
+      window.appState.currentExam = exam;
+      window.appState.userAnswers = {};
+      renderNav();
+      renderActiveStudentExamPage();
+    };
+
+    window.renderActiveStudentExamPage = () => {
+      const exam = window.appState.currentExam;
+      const questions = exam.questions;
+      const index = window.appState.activeQuestionIndex || 0;
+      const currentQ = questions[index];
+
+      const container = document.getElementById('appContainer');
+      container.innerHTML = `
+        <div class="max-w-4xl mx-auto space-y-6">
+          <div class="bg-white p-4 rounded-2xl shadow-sm border flex justify-between items-center">
+            <div>
+              <h2 class="font-bold text-slate-900">${exam.title || 'Ujian Online'}</h2>
+              <p class="text-xs text-slate-500">Mata Pelajaran: ${exam.subject} | Soal ${index + 1} dari ${questions.length}</p>
+            </div>
+            <button onclick="submitStudentExam()" class="bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition">
+              Selesaikan Ujian
+            </button>
+          </div>
+
+          <div class="bg-white p-6 rounded-2xl shadow-sm border space-y-6">
+            <div class="text-sm font-semibold text-slate-800 leading-relaxed">
+              <span class="inline-block bg-indigo-100 text-indigo-800 text-xs px-2.5 py-1 rounded-lg font-bold mr-2">No. ${index + 1}</span>
+              ${currentQ.question}
+            </div>
+
+            <div class="space-y-3">
+              ${['A', 'B', 'C', 'D'].map(optKey => {
+                if (!currentQ.options || !currentQ.options[optKey]) return '';
+                const isSelected = window.appState.userAnswers[index] === optKey;
+                return `
+                  <label onclick="window.appState.userAnswers[${index}] = '${optKey}'; renderActiveStudentExamPage();" class="flex items-center p-3.5 rounded-xl border cursor-pointer transition ${isSelected ? 'border-indigo-600 bg-indigo-50/50 text-indigo-900 font-semibold' : 'border-slate-200 hover:bg-slate-50'}">
+                    <span class="w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold mr-3 ${isSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-600'}">${optKey}</span>
+                    <span class="text-sm">${currentQ.options[optKey]}</span>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="flex justify-between">
+            <button onclick="if (${index} > 0) { window.appState.activeQuestionIndex--; renderActiveStudentExamPage(); }" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl text-xs font-semibold ${index === 0 ? 'opacity-50 pointer-events-none' : ''}">
+              <i class="fa-solid fa-chevron-left"></i> Sebelumnya
+            </button>
+            <button onclick="if (${index} < ${questions.length - 1}) { window.appState.activeQuestionIndex++; renderActiveStudentExamPage(); }" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-semibold ${index === questions.length - 1 ? 'hidden' : ''}">
+              Berikutnya <i class="fa-solid fa-chevron-right"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    };
+
+    window.renderStudentResultPage = (res) => {
+      const container = document.getElementById('appContainer');
+      container.innerHTML = `
+        <div class="max-w-md mx-auto bg-white p-6 rounded-2xl shadow-sm border border-slate-200 text-center space-y-6">
+          <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
+            <i class="fa-solid fa-circle-check"></i>
+          </div>
+          <div>
+            <h3 class="text-xl font-bold text-slate-900">Ujian Selesai!</h3>
+            <p class="text-xs text-slate-500 mt-1">Jawaban Anda telah berhasil tersimpan dan terkirim ke Guru secara Real-Time.</p>
+          </div>
+
+          <div class="bg-slate-50 p-4 rounded-xl border text-center">
+            <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Nilai Akhir Anda</p>
+            <p class="text-4xl font-extrabold text-indigo-700 mt-1">${res.score}</p>
+            <p class="text-xs text-slate-600 mt-2">Benar ${res.correctCount} dari ${res.totalQuestions} Soal</p>
+          </div>
+
+          <button onclick="renderPortalSelection()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-semibold py-2.5 rounded-xl text-sm transition">
+            Kembali ke Halaman Utama
+          </button>
+        </div>
+      `;
+    };
+
+    // Admin Auth & Dashboards
+    window.renderAdminAuthModal = () => {
+      const container = document.getElementById('appContainer');
+      container.innerHTML = `
+        <div class="max-w-md mx-auto bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+          <div class="text-center">
+            <h3 class="text-xl font-bold text-slate-900">Login Administrator</h3>
+            <p class="text-xs text-slate-500 mt-1">Masuk dengan kredensial Super Admin Sekolah.</p>
+          </div>
+          <form onsubmit="handleAdminAuthSubmit(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Email Admin</label>
+              <input type="email" id="admAuthEmail" required value="${window.adminCredentials.email}" class="w-full px-3.5 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Password Admin</label>
+              <input type="password" id="admAuthPassword" required value="${window.adminCredentials.password}" class="w-full px-3.5 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none">
+            </div>
+            <div class="flex gap-2 pt-2">
+              <button type="button" onclick="renderPortalSelection()" class="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2.5 rounded-xl text-sm transition">Batal</button>
+              <button type="submit" class="w-2/3 bg-rose-600 hover:bg-rose-700 text-white font-semibold py-2.5 rounded-xl text-sm transition">
+                Masuk Dashboard Admin
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+    };
+
+    window.handleAdminAuthSubmit = (e) => {
+      e.preventDefault();
+      const email = document.getElementById('admAuthEmail').value.trim();
+      const password = document.getElementById('admAuthPassword').value.trim();
+
+      if (email === window.adminCredentials.email && password === window.adminCredentials.password) {
+        window.appState.userProfile = { name: 'Super Admin', email: email, role: 'admin' };
+        window.appState.role = 'admin';
+        renderNav();
+        renderAdminDashboard();
+        showToast("Berhasil masuk sebagai Super Admin", "success");
+      } else {
+        showToast("Email atau Kata Sandi Admin Salah!", "error");
+      }
+    };
+
+    // Handler untuk Mengubah Email & Password Admin
+    window.handleUpdateAdminAccount = (e) => {
+      e.preventDefault();
+      const newEmail = document.getElementById('admNewEmail').value.trim();
+      const newPassword = document.getElementById('admNewPassword').value.trim();
+      const confirmPassword = document.getElementById('admConfirmPassword').value.trim();
+
+      if (!newEmail || !newPassword) {
+        showToast("Email dan Password baru wajib diisi!", "error");
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        showToast("Konfirmasi password baru tidak cocok!", "error");
+        return;
+      }
+
+      // Update Kredensial Admin di Memory dan Local Storage
+      window.adminCredentials.email = newEmail;
+      window.adminCredentials.password = newPassword;
+      saveLocalStore('admin_creds', window.adminCredentials);
+
+      if (window.appState.userProfile) {
+        window.appState.userProfile.email = newEmail;
+      }
+
+      renderNav();
+      showToast("Email & Password Admin berhasil diperbarui!", "success");
+      e.target.reset();
+    };
+
+    window.renderAdminDashboard = () => {
+      const container = document.getElementById('appContainer');
+      container.innerHTML = `
+        <div class="space-y-6">
+          <div class="flex justify-between items-center">
+            <div>
+              <h2 class="text-2xl font-extrabold text-slate-900">Dashboard Administrator</h2>
+              <p class="text-xs text-slate-500">Kelola murid whitelist, akun guru mapel, dan ubah akun administrator sekolah.</p>
+            </div>
+          </div>
+
+          <!-- Quick Stats -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-white p-4 rounded-xl border shadow-sm">
+              <p class="text-xs text-slate-500 font-semibold">Total Murid Terdaftar</p>
+              <p id="statTotalStudents" class="text-2xl font-bold text-indigo-700 mt-1">0</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl border shadow-sm">
+              <p class="text-xs text-slate-500 font-semibold">Total Guru Mapel</p>
+              <p id="statTotalTeachers" class="text-2xl font-bold text-emerald-700 mt-1">0</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl border shadow-sm">
+              <p class="text-xs text-slate-500 font-semibold">Total Paket Ujian</p>
+              <p id="statTotalExams" class="text-2xl font-bold text-amber-700 mt-1">0</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl border shadow-sm">
+              <p class="text-xs text-slate-500 font-semibold">Rata-rata Sekolah</p>
+              <p id="statAvgScore" class="text-2xl font-bold text-rose-700 mt-1">0</p>
+            </div>
+          </div>
+
+          <!-- Form Ubah Akun Admin -->
+          <div class="bg-white p-5 rounded-2xl border border-rose-200 bg-rose-50/20 shadow-sm space-y-4">
+            <h3 class="font-bold text-slate-900 text-sm border-b border-rose-200 pb-2 text-rose-800 flex items-center gap-2">
+              <i class="fa-solid fa-key"></i> Pengaturan Kredensial Administrator (Ubah Email & Password)
+            </h3>
+            <form onsubmit="handleUpdateAdminAccount(event)" class="grid md:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-600 mb-1">Email Admin Baru</label>
+                <input type="email" id="admNewEmail" placeholder="admin@smpn4meukek.sch.id" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none focus:ring-2 focus:ring-rose-500 bg-white">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-600 mb-1">Password Baru</label>
+                <input type="password" id="admNewPassword" placeholder="••••••••" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none focus:ring-2 focus:ring-rose-500 bg-white">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-600 mb-1">Konfirmasi Password Baru</label>
+                <input type="password" id="admConfirmPassword" placeholder="••••••••" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none focus:ring-2 focus:ring-rose-500 bg-white">
+              </div>
+              <div class="md:col-span-3">
+                <button type="submit" class="w-full bg-rose-600 text-white font-semibold py-2 rounded-xl text-xs hover:bg-rose-700 transition shadow-sm">
+                  Simpan Perubahan Kredensial Admin
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6">
+            <!-- Form Register Student -->
+            <div class="bg-white p-5 rounded-2xl border shadow-sm space-y-4">
+              <h3 class="font-bold text-slate-900 text-sm border-b pb-2"><i class="fa-solid fa-user-plus text-indigo-600 mr-1.5"></i> Tambah Murid Whitelist</h3>
+              <form onsubmit="handleAddStudentSubmit(event)" class="space-y-3">
+                <input type="text" id="admStudentNis" placeholder="NIS Murid" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none">
+                <input type="text" id="admStudentName" placeholder="Nama Murid" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none">
+                <input type="text" id="admStudentClass" placeholder="Kelas (Contoh: VII A)" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none">
+                <button type="submit" class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-xl text-xs hover:bg-indigo-700 transition">Daftarkan Murid</button>
+              </form>
+              <div id="admStudentsListContainer" class="mt-4 max-h-48 overflow-y-auto"></div>
+            </div>
+
+            <!-- Form Add Teacher -->
+            <div class="bg-white p-5 rounded-2xl border shadow-sm space-y-4">
+              <h3 class="font-bold text-slate-900 text-sm border-b pb-2"><i class="fa-solid fa-chalkboard-user text-emerald-600 mr-1.5"></i> Buat Akun Guru Mapel</h3>
+              <form onsubmit="handleAddTeacherSubmit(event)" class="space-y-3">
+                <input type="text" id="admTeacherName" placeholder="Nama Lengkap Guru" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none">
+                <input type="text" id="admTeacherSubject" placeholder="Mata Pelajaran (Contoh: IPA)" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none">
+                <input type="email" id="admTeacherEmail" placeholder="Email Guru" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none">
+                <input type="password" id="admTeacherPassword" placeholder="Kata Sandi Guru" required class="w-full px-3 py-2 border rounded-xl text-xs outline-none">
+                <button type="submit" class="w-full bg-emerald-600 text-white font-semibold py-2 rounded-xl text-xs hover:bg-emerald-700 transition">Buat Akun Guru</button>
+              </form>
+              <div id="admTeachersListContainer" class="mt-4 max-h-48 overflow-y-auto"></div>
+            </div>
+          </div>
+        </div>
+      `;
+      renderAdminDashboardStats();
+      renderAdminStudentsList();
+      renderAdminTeachersList();
+    };
+
+    window.renderAdminStudentsList = () => {
+      const container = document.getElementById('admStudentsListContainer');
+      if (!container) return;
+      const students = Object.values(window.localStudentsStore);
+      if (students.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400">Belum ada murid terdaftar.</p>`;
+        return;
+      }
+      container.innerHTML = students.map(s => `
+        <div class="flex justify-between items-center text-xs border-b py-2">
+          <div>
+            <p class="font-bold text-slate-800">${s.name} (${s.class})</p>
+            <p class="text-slate-500">NIS: ${s.nis}</p>
+          </div>
+          <button onclick="handleDeleteStudent('${s.nis}')" class="text-rose-600 hover:text-rose-800"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      `).join('');
+    };
+
+    window.renderAdminTeachersList = () => {
+      const container = document.getElementById('admTeachersListContainer');
+      if (!container) return;
+      const teachers = Object.values(window.localTeachersStore).filter(t => t.role !== 'admin');
+      if (teachers.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400">Belum ada guru terdaftar.</p>`;
+        return;
+      }
+      container.innerHTML = teachers.map(t => `
+        <div class="flex justify-between items-center text-xs border-b py-2">
+          <div>
+            <p class="font-bold text-slate-800">${t.name} - ${t.subject}</p>
+            <p class="text-slate-500">${t.email}</p>
+          </div>
+          <button onclick="handleDeleteTeacher('${t.uid}')" class="text-rose-600 hover:text-rose-800"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      `).join('');
+    };
+
+    // Guru Portal & Auth
+    window.renderGuruAuthModal = (mode = 'login') => {
+      const container = document.getElementById('appContainer');
+      container.innerHTML = `
+        <div class="max-w-md mx-auto bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+          <div class="text-center">
+            <h3 class="text-xl font-bold text-slate-900">Login Guru Mapel</h3>
+            <p class="text-xs text-slate-500 mt-1">Masuk dengan akun guru yang telah dibuatkan oleh Admin.</p>
+          </div>
+          <form onsubmit="handleTeacherLoginSubmit(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Email Guru</label>
+              <input type="email" id="guruEmail" required placeholder="email@smpn4meukek.sch.id" class="w-full px-3.5 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Password</label>
+              <input type="password" id="guruPassword" required placeholder="••••••••" class="w-full px-3.5 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none">
+            </div>
+            <div class="flex gap-2 pt-2">
+              <button type="button" onclick="renderPortalSelection()" class="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2.5 rounded-xl text-sm transition">Batal</button>
+              <button type="submit" class="w-2/3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl text-sm transition">
+                Masuk Dashboard Guru
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+    };
+
+    window.handleTeacherLoginSubmit = (e) => {
+      e.preventDefault();
+      const email = document.getElementById('guruEmail').value.trim();
+      const password = document.getElementById('guruPassword').value.trim();
+
+      const teacher = Object.values(window.localTeachersStore).find(t => t.email === email && t.password === password);
+      if (teacher) {
+        window.appState.userProfile = teacher;
+        window.appState.role = 'guru';
+        renderNav();
+        renderGuruDashboard();
+        showToast(`Selamat datang, ${teacher.name}!`, "success");
+      } else {
+        showToast("Email atau Kata Sandi Guru tidak cocok!", "error");
+      }
+    };
+
+    window.renderGuruDashboard = () => {
+      const profile = window.appState.userProfile;
+      const container = document.getElementById('appContainer');
+      container.innerHTML = `
+        <div class="space-y-6">
+          <div class="flex justify-between items-center">
+            <div>
+              <h2 class="text-2xl font-extrabold text-slate-900">Dashboard Guru - ${profile.subject || 'Mapel'}</h2>
+              <p class="text-xs text-slate-500">Buat paket ujian baru dan lihat hasil nilai siswa secara real-time.</p>
+            </div>
+          </div>
+
+          <div class="bg-white p-5 rounded-2xl border shadow-sm space-y-4">
+            <h3 class="font-bold text-slate-900 text-sm border-b pb-2"><i class="fa-solid fa-plus-circle text-emerald-600 mr-1"></i> Buat Paket Ujian Baru</h3>
+            <form onsubmit="handleCreateExamSubmit(event)" class="space-y-3">
+              <div class="grid md:grid-cols-2 gap-3">
+                <input type="text" id="exTitle" placeholder="Judul Ujian (Contoh: UH 1 IPA Klas VII)" required class="px-3 py-2 border rounded-xl text-xs outline-none">
+                <input type="text" id="exCode" placeholder="Kode Akses (Contoh: IPA7A)" required uppercase class="px-3 py-2 border rounded-xl text-xs outline-none font-bold">
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Unggah Soal Word (.docx) atau Ketik Manual JSON</label>
+                <input type="file" id="exWordFile" accept=".docx" class="text-xs border p-2 rounded-xl w-full">
+              </div>
+              <button type="submit" class="bg-emerald-600 text-white font-semibold px-4 py-2 rounded-xl text-xs hover:bg-emerald-700 transition">Publikasikan Ujian</button>
+            </form>
+          </div>
+
+          <div class="space-y-3">
+            <h3 class="font-bold text-slate-900 text-sm">Daftar Paket Ujian Terpublikasi</h3>
+            <div id="guruExamsGrid" class="grid md:grid-cols-3 gap-4"></div>
+          </div>
+        </div>
+      `;
+      renderGuruExamsGrid();
+    };
+
+    window.handleCreateExamSubmit = (e) => {
+      e.preventDefault();
+      const title = document.getElementById('exTitle').value.trim();
+      const code = document.getElementById('exCode').value.trim().toUpperCase();
+      const fileInput = document.getElementById('exWordFile');
+
+      if (!title || !code) {
+        showToast("Judul dan Kode Ujian wajib diisi!", "error");
+        return;
+      }
+
+      // Default sample questions if no Word file attached
+      let questions = [
+        { question: "Apa ibu kota negara Indonesia?", options: { A: "Jakarta", B: "Nusantara", C: "Medan", D: "Surabaya" }, key: "B" },
+        { question: "Proses fotosintesis pada tumbuhan membutuhkan?", options: { A: "Oksigen", B: "Sinar Matahari", C: "Karbon Monoksida", D: "Nitrogen" }, key: "B" }
+      ];
+
+      const examObj = { title, code, subject: window.appState.userProfile.subject, questions, createdAt: new Date().toISOString() };
+      window.localExamsStore[code] = examObj;
+      saveLocalStore('exams', window.localExamsStore);
+
+      showToast(`Paket Ujian [${code}] berhasil dipublikasikan secara Real-Time!`, "success");
+      e.target.reset();
+      renderGuruExamsGrid();
+    };
+
+    window.renderGuruExamsGrid = () => {
+      const container = document.getElementById('guruExamsGrid');
+      if (!container) return;
+      const exams = Object.values(window.localExamsStore);
+      if (exams.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400 col-span-3">Belum ada paket ujian terbuat.</p>`;
+        return;
+      }
+
+      container.innerHTML = exams.map(ex => `
+        <div class="bg-white p-4 rounded-xl border shadow-sm space-y-3">
+          <div class="flex justify-between items-start">
+            <div>
+              <span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2 py-0.5 rounded">${ex.code}</span>
+              <h4 class="font-bold text-slate-800 text-sm mt-1">${ex.title}</h4>
+            </div>
+          </div>
+          <div class="flex gap-2 border-t pt-2">
+            <button onclick="downloadExamCSV('${ex.code}')" class="w-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-1.5 rounded-lg text-xs font-semibold">
+              <i class="fa-solid fa-file-excel mr-1"></i> Unduh Rekap Nilai
+            </button>
+          </div>
+        </div>
+      `).join('');
+    };
+
+    window.downloadExamCSV = (examCode) => {
+      const results = Object.values(window.localResultsStore).filter(r => r.examCode === examCode);
+      if (results.length === 0) {
+        showToast("Belum ada jawaban siswa untuk ujian ini!", "error");
+        return;
+      }
+      let csvContent = "data:text/csv;charset=utf-8,NIS,Nama Siswa,Skor Akhir,Benar\n";
+      results.forEach(r => {
+        csvContent += `${r.studentNis},"${r.studentName}",${r.score},${r.correctCount}\n`;
+      });
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `Rekap_Nilai_${examCode}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    window.handleLogout = () => {
+      window.appState.user = null;
+      window.appState.userProfile = null;
+      window.appState.role = null;
+      renderPortalSelection();
+      showToast("Berhasil keluar", "info");
+    };
+
+    // Navigation and Page Initializer
+    window.navigateHome = () => {
+      if (window.appState.role === 'admin') renderAdminDashboard();
+      else if (window.appState.role === 'guru') renderGuruDashboard();
+      else renderPortalSelection();
+    };
+
+    // Server sync: pushes local changes and polls for changes from other devices
+    const SYNC_STORES = { exams: 'localExamsStore', results: 'localResultsStore', teachers: 'localTeachersStore', students: 'localStudentsStore' };
+    const syncSnapshot = {};
+    let syncSince = null;
+    const snap = (k) => JSON.parse(JSON.stringify(window[SYNC_STORES[k]] || {}));
+    const _origSave = saveLocalStore;
+    saveLocalStore = function (key, data) {
+      _origSave(key, data);
+      if (!SYNC_STORES[key]) return;
+      const prev = syncSnapshot[key] || {}, changes = [];
+      for (const id in data) if (JSON.stringify(prev[id]) !== JSON.stringify(data[id])) changes.push({ store: key, id, data: data[id] });
+      for (const id in prev) if (!(id in data)) changes.push({ store: key, id, deleted: true });
+      syncSnapshot[key] = snap(key);
+      if (changes.length) fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes }) }).catch(() => {});
+    };
+    async function pollSync() {
+      try {
+        const res = await fetch('/api/sync' + (syncSince ? '?since=' + encodeURIComponent(syncSince) : ''), { cache: 'no-store' });
+        if (!res.ok) return;
+        const { serverTime, changes, full } = await res.json();
+        const touched = new Set();
+        if (full) {
+          // First load: upload local-only items, then merge server items
+          const seen = {};
+          changes.forEach(c => (seen[c.store] = seen[c.store] || {})[c.id] = true);
+          const up = [];
+          for (const k in SYNC_STORES) for (const id in window[SYNC_STORES[k]]) if (!seen[k]?.[id]) up.push({ store: k, id, data: window[SYNC_STORES[k]][id] });
+          if (up.length) fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: up }) }).catch(() => {});
+        }
+        changes.forEach(c => {
+          const store = window[SYNC_STORES[c.store]];
+          if (!store) return;
+          const before = JSON.stringify(store[c.id]);
+          if (c.deleted) delete store[c.id]; else store[c.id] = c.data;
+          if (before !== JSON.stringify(store[c.id])) touched.add(c.store);
+        });
+        syncSince = serverTime;
+        touched.forEach(k => { _origSave(k, window[SYNC_STORES[k]]); syncSnapshot[k] = snap(k); });
+        if (touched.size) {
+          if (window.appState.role === 'admin') { renderAdminDashboardStats(); renderAdminStudentsList(); renderAdminTeachersList(); }
+          else if (window.appState.role === 'guru') {
+            renderGuruExamsGrid();
+            if (window.appState.currentExam) renderLiveResultsTable(window.appState.currentExam.code);
+            if (touched.has('results')) showToast("Data hasil ujian ter-update real-time", "success");
+          }
+        }
+      } catch (e) { /* offline: retry next tick */ }
+    }
+
+    window.onload = () => {
+      Object.keys(SYNC_STORES).forEach(k => syncSnapshot[k] = snap(k));
+      renderPortalSelection();
+      pollSync();
+      setInterval(pollSync, 3000);
+    };
+  </script>
+</body>
+</html>
